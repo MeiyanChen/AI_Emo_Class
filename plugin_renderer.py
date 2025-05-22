@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import reapy
 import sounddevice as sd
+import soundfile as sf
 
 from constants import NUM_CHANNELS, SAMPLERATE, BLOCKSIZE, AUTOSAVE_INTERVAL, TARGET_dBFS, DATASET_FOLDER, RENDERED_AUDIO_FOLDER, RECORDING_LENGTH
 from logger import setup_logger
@@ -134,6 +135,31 @@ class AudioRecorder:
 
         # Apply normalization with clipping prevention
         return np.clip(audio_data * scale_factor, -1.0, 1.0)
+    
+    def apply_envelope(self, filepath, attack_time=0.01, release_time=0.05):
+        """ Applies a linear fade-in and fade-out envelope to the recorded audio """
+    
+        y, sr = sf.read(filepath)
+
+        attack_samples = int(sr * attack_time)
+        release_samples = int(sr * release_time)
+        total_samples = len(y)
+
+        envelope = np.ones(total_samples)
+
+        if attack_samples > 0:
+            envelope[:attack_samples] = np.linspace(0, 1, attack_samples)
+
+        if release_samples > 0:
+            envelope[-release_samples:] = np.linspace(1, 0, release_samples)
+
+        if y.ndim > 1:
+            envelope = envelope[:, np.newaxis]
+
+        y *= envelope
+
+        sf.write(filepath, y, sr)
+
         
     def _audio_callback(self, indata, frames, time, status):
         """Sounddevice callback"""
@@ -212,10 +238,21 @@ def main(render_mode,
                 time.sleep(RECORDING_LENGTH)
                 RPR.CSurf_OnStop()
                 filename = recorder.stop_recording()
+
+                # Audio mask - Envelope
+                if filename:
+                    full_path = os.path.join(RENDERED_AUDIO_FOLDER, directory, filename)
+                    recorder.apply_envelope(full_path, attack_time=0.01, release_time=0.05)
+
+                    param_values.update({
+                     "name": "random_%s" % filename.replace(".wav", ""),
+                     "file": filename
+                    })
+                    data_handler.add_record(param_values)
                 
                 # Save data
                 if filename:
-                    param_values.update({
+                    param_values.update({conda 
                         "name": "random_%s" % filename.replace(".wav", ""),
                         "file": filename
                     })
